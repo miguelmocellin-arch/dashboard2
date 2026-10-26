@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashboard – Campeonato Regional</title>
+<!-- Chart.js: biblioteca que desenha gráficos dentro de um <canvas> -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+/* Cores como variáveis: o tema claro/escuro troca só estes valores */
+:root {
+  --bg: #f1f5f9; --card: #ffffff; --texto: #0f172a; --suave: #475569;
+  --verde: #15803d; --azul: #2563eb; --vermelho: #dc2626; --grade: #e2e8f0;
+  box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a; --card: #1e293b; --texto: #e2e8f0; --suave: #94a3b8;
+    --verde: #22c55e; --azul: #3b82f6; --vermelho: #f87171; --grade: #334155;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f172a; --card: #1e293b; --texto: #e2e8f0; --suave: #94a3b8;
+  --verde: #22c55e; --azul: #3b82f6; --vermelho: #f87171; --grade: #334155;
+}
+body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--texto); margin: 0; padding: 24px; }
+h1 { margin: 0 0 4px; }
+small { color: var(--suave); }
+.aviso { display: inline-block; margin: 8px 0 16px; padding: 4px 10px; border-radius: 999px;
+  background: var(--card); color: var(--suave); font-size: .85rem; }
+/* Grades: auto-fit encaixa quantos cartões couberem na largura da tela */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+.graficos { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.card { background: var(--card); border-radius: 12px; padding: 16px; min-width: 0; }
+.card span { display: block; font-size: 2rem; font-weight: bold; color: var(--verde); }
+.tabela { overflow-x: auto; margin-top: 16px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grade); }
+th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<h1>⚽ Campeonato Regional – 7 rodadas</h1>
+<small>Quais times têm o melhor ataque e a melhor defesa?</small><br>
+<span class="aviso">⚠️ Dados fictícios, para fins didáticos</span>
+
+<!-- CAMADA 2: INDICADORES (KPIs) – respondem "como estamos?" -->
+<div class="kpis">
+  <div class="card">Total de gols <span id="kpiGols">–</span></div>
+  <div class="card">Média de gols por jogo <span id="kpiMedia">–</span></div>
+  <div class="card">Líder <span id="kpiLider">–</span></div>
+  <div class="card">Melhor ataque <span id="kpiAtaque">–</span></div>
+</div>
+
+<!-- CAMADA 3: VISUALIZAÇÃO – respondem "por quê?" e "onde?" -->
+<div class="graficos">
+  <div class="card"><canvas id="graficoPontos"></canvas></div>
+  <div class="card"><canvas id="graficoAtaqueDefesa"></canvas></div>
+  <div class="card"><canvas id="graficoRodadas"></canvas></div>
+</div>
+
+<!-- Tabela com os dados brutos (CAMADA 1), para conferir os números -->
+<div class="card tabela"><table id="tabela"></table></div>
+
+<script>
+// ===== CAMADA 1) DADOS =====
+// Cada objeto é uma LINHA da planilha: v = vitórias, e = empates, d = derrotas,
+// gp = gols pró (marcados), gc = gols contra (sofridos). Todos jogaram 7 partidas.
+const times = [
+  { nome: "Ouro Verde",         v: 5, e: 1, d: 1, gp: 14, gc: 5  },
+  { nome: "Matelândia FC",      v: 4, e: 2, d: 1, gp: 12, gc: 6  },
+  { nome: "Atlético Céu Azul",  v: 4, e: 1, d: 2, gp: 11, gc: 8  },
+  { nome: "União Serrana",      v: 3, e: 2, d: 2, gp: 9,  gc: 8  },
+  { nome: "Esporte Oeste",      v: 2, e: 3, d: 2, gp: 8,  gc: 9  },
+  { nome: "Sporting Paraná",    v: 2, e: 1, d: 4, gp: 7,  gc: 11 },
+  { nome: "Real Planalto",      v: 1, e: 2, d: 4, gp: 6,  gc: 12 },
+  { nome: "Operário FC",        v: 0, e: 2, d: 5, gp: 4,  gc: 12 },
+];
+// Total de gols marcados em cada rodada (4 jogos por rodada)
+const rodadas = [10, 9, 12, 8, 11, 10, 11];
+
+// ===== 2) PROCESSAMENTO: transformar linhas em indicadores =====
+// Pontos: vitória vale 3, empate vale 1. Criamos uma nova coluna "pts" em cada linha.
+times.forEach(t => { t.pts = t.v * 3 + t.e; });
+// Classificação: sort ordena do maior para o menor número de pontos
+const ranking = [...times].sort((a, b) => b.pts - a.pts);
+// reduce percorre a lista acumulando um valor (começa em 0)
+const totalGols = times.reduce((soma, t) => soma + t.gp, 0);
+const totalJogos = times.reduce((soma, t) => soma + t.v + t.e + t.d, 0) / 2; // cada jogo tem 2 times
+const melhorAtaque = times.reduce((a, b) => a.gp > b.gp ? a : b);
+
+// ===== 3) EXIBIÇÃO DOS KPIs =====
+document.getElementById("kpiGols").textContent = totalGols;
+document.getElementById("kpiMedia").textContent = (totalGols / totalJogos).toFixed(2).replace(".", ",");
+document.getElementById("kpiLider").textContent = ranking[0].nome;
+document.getElementById("kpiAtaque").textContent = melhorAtaque.nome + " (" + melhorAtaque.gp + ")";
+
+// ===== 4) GRÁFICOS =====
+// As cores vêm das variáveis do CSS, então os gráficos acompanham o tema claro/escuro
+const css = getComputedStyle(document.documentElement);
+const cor = nome => css.getPropertyValue(nome).trim();
+Chart.defaults.color = cor("--texto");
+Chart.defaults.borderColor = cor("--grade");
+
+// Barras horizontais ordenadas: ideal para COMPARAR categorias (times)
+new Chart(document.getElementById("graficoPontos"), {
+  type: "bar",
+  data: {
+    labels: ranking.map(t => t.nome),
+    datasets: [{ label: "Pontos", data: ranking.map(t => t.pts), backgroundColor: cor("--verde") }]
+  },
+  options: { indexAxis: "y", plugins: { title: { display: true, text: "Quem lidera a classificação?" } } }
+});
+
+// Barras agrupadas: compara DUAS medidas (ataque x defesa) lado a lado
+new Chart(document.getElementById("graficoAtaqueDefesa"), {
+  type: "bar",
+  data: {
+    labels: times.map(t => t.nome),
+    datasets: [
+      { label: "Gols marcados", data: times.map(t => t.gp), backgroundColor: cor("--azul") },
+      { label: "Gols sofridos", data: times.map(t => t.gc), backgroundColor: cor("--vermelho") }
+    ]
+  },
+  options: { plugins: { title: { display: true, text: "Quem ataca e quem defende melhor?" } } }
+});
+
+// Linha: ideal para mostrar EVOLUÇÃO no tempo (rodadas)
+new Chart(document.getElementById("graficoRodadas"), {
+  type: "line",
+  data: {
+    labels: rodadas.map((_, i) => "R" + (i + 1)),
+    datasets: [{ label: "Gols na rodada", data: rodadas, borderColor: cor("--verde"), tension: 0.3 }]
+  },
+  options: { plugins: { title: { display: true, text: "Quantos gols saem em cada rodada?" } } }
+});
+
+// ===== TABELA DE DADOS (para conferir se os cartões batem com a soma) =====
+document.getElementById("tabela").innerHTML =
+  "<tr><th>Time</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>Pts</th></tr>" +
+  ranking.map(t => "<tr><td>" + t.nome + "</td><td>" + t.v + "</td><td>" + t.e + "</td><td>" +
+    t.d + "</td><td>" + t.gp + "</td><td>" + t.gc + "</td><td><b>" + t.pts + "</b></td></tr>").join("");
+</script>
+</body>
+</html>
